@@ -1,0 +1,26 @@
+
+# Save variable value in bash export
+# * 1 Variable name
+# * 2 Variable value
+saveEnvVariableValue(){
+
+    # Get variable name
+    VARIABLE_NAME="$1"
+    shift
+
+    # Get variable value
+    VARIABLE_VALUE="$1"
+    shift
+
+    # Check if variable exits
+    VAL=$(grep /etc/bash.bashrc -e "^export ${VARIABLE_NAME}=.*$")
+    if [ "$VAL" == "" ]
+    then
+        echo "export ${VARIABLE_NAME}=\"${VARIABLE_VALUE}\"" >> /etc/bash.bashrc
+    else
+        sed -i -e "s/export ${VARIABLE_NAME}=.*/export ${VARIABLE_NAME}=\"${VARIABLE_VALUE}\"/g" /etc/bash.bashrc
+    fi
+
+    # Export to current terminal
+    export ${VARIABLE_NAME}="${VARIABLE_VALUE}"
+}

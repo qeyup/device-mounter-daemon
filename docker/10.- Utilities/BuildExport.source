@@ -1,0 +1,70 @@
+
+# Install in root using symbolic links
+# * 1: INSTALL_ROOT. rootsystem to install the generated symbolic links of libs, includes... 
+# * 2: FORCE.
+# * 3: RELATIVE_PATH.
+# * 4,..: PATH.
+MakeSymbolicInstall()(
+    set +e
+
+    # Get data from args
+    INSTALL_PATH="$(readlink -f $1)"
+    shift
+    FORCE=$(if [ "$1" != "true" ]; then echo "false"; else echo "true"; fi)
+    shift
+    RELATIVE_PATH="$(readlink -f $1)"
+    shift
+    SOURCES_PATH=$@
+
+    echo "Install path: $INSTALL_PATH"
+    echo "Force: $FORCE"
+    echo "Relative path: $RELATIVE_PATH"
+    echo "Sources path: $SOURCES_PATH"
+
+    FORCE=$(if [ "$FORCE" == "true" ]; then echo "-f"; fi)
+
+    # Move to rel path
+    cd ${RELATIVE_PATH}
+
+    # Find in folder
+    find $SOURCES_PATH -type f,l -printf "%h %f\n" | while read FILE_PATH FILE_NAME
+    do
+        mkdir -p "${INSTALL_PATH}/${FILE_PATH}"
+        ln -s $FORCE "${RELATIVE_PATH}/${FILE_PATH}/${FILE_NAME}" "${INSTALL_PATH}/${FILE_PATH}" 2> /dev/null
+    done
+)
+export -f MakeSymbolicInstall
+
+# Extract folder in a specific folder (no need to know the extrated folder name)
+ExtractFolder()(
+
+    # Compress file
+    COMPRESS_FOLDER="$(readlink -f $1)"
+    shift
+
+    # Out file
+    OUT_FOLDER="$(readlink -f $1)"
+
+    rm -rf /tmp/extractFolder
+    mkdir /tmp/extractFolder
+    cd /tmp/extractFolder
+
+
+    # Extract
+    if [ "$(echo ${COMPRESS_FOLDER} | grep ".zip$")" == "" ]; then
+        tar -xf ${COMPRESS_FOLDER}
+    else
+        unzip ${COMPRESS_FOLDER}
+    fi
+
+    # Move
+    if [ $(ls | wc -l) -eq 1 ]; then
+        mv ./* ${OUT_FOLDER}
+        cd /tmp
+        rmdir /tmp/extractFolder
+    else
+        cd /tmp
+        mv /tmp/extractFolder ${OUT_FOLDER}
+    fi
+)
+export -f ExtractFolder

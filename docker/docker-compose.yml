@@ -1,0 +1,14 @@
+version: "3.3"
+services:
+  build_env:
+    build: "."
+    image: "device_mounter_dwi"
+    volumes:
+      - ../:/home/docker/workspace
+      - /tmp/.X11-unix/:/tmp/.X11-unix/
+    environment:
+      - DISPLAY=:0
+    network_mode: "bridge"
+    stdin_open: true 
+    tty: true
+    privileged: true
