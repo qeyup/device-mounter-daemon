@@ -26,9 +26,10 @@ import json
 
 class deviceMounter():
 
-    MOUNT_COMMAND_PREFIX = "mount_"
-    UNMOUNT_COMMAND_PREFIX = "ummount_"
-    DEVICE_INFO = "info_"
+    MOUNT_COMMAND_PREFIX = "mount/"
+    UNMOUNT_COMMAND_PREFIX = "ummount/"
+    DEVICE_INFO_PREFIX = "info/"
+
     LABEL_PATH = "/dev/disk/by-label/"
     MOUNT_PATH = "/run/mount/"
     ERROR_FIELD = "error"
@@ -186,7 +187,7 @@ class deviceMounter():
 
         if self.info_sent[device] != json_str:
             self.info_sent[device] = json_str
-            self.d2d.publishInfo(deviceMounter.DEVICE_INFO + device, json_str, d2dcn.d2dConstants.category.GENERIC)
+            self.d2d.publishInfo(deviceMounter.DEVICE_INFO_PREFIX + device, json_str, d2dcn.d2dConstants.category.GENERIC)
 
 
     def run(self):
@@ -208,6 +209,8 @@ class deviceMounter():
 
             for device in self.removed_devices:
                 self.updateUnmountedDeviceInfo(device)
+
+            self.d2d.removeUnregistered()
 
 
 def main():
