@@ -5,6 +5,7 @@ services:
     image: "device_mounter_dwi"
     volumes:
       - ../:/home/docker/workspace
+      - ../.ssh/:/home/docker/.ssh
       - /tmp/.X11-unix/:/tmp/.X11-unix/
     environment:
       - DISPLAY=:0

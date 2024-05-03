@@ -21,6 +21,7 @@ import argparse
 import sys
 import time
 import os
+import shutil
 import json
 
 
@@ -32,7 +33,11 @@ class deviceMounter():
 
     LABEL_PATH = "/dev/disk/by-label/"
     MOUNT_PATH = "/run/mount/"
+    SYSTEM_FSTAB_PATH = "/etc/fstab"
+    SYSTEM_MOUNTED_PATH = "/proc/mounts"
     ERROR_FIELD = "error"
+
+    INVALID_VALUE = ""
 
     ERROR_CREATE_MOUNT_POINT = "Create mount point error"
     ERROR_MOUNT_COMMAND_ERROR = "Mount command error"
@@ -55,6 +60,7 @@ class deviceMounter():
         self.removed_devices = []
         self.info_sent = {}
         self.is_mounted = {}
+        self.system_mounted_devices = []
 
 
     def mountDevice(self, device):
@@ -83,7 +89,6 @@ class deviceMounter():
     def umountDevice(self, device):
 
         device_mount_path = deviceMounter.MOUNT_PATH + "/" + device
-        os.mkdir(device_mount_path, parents=True, exist_ok=True)
 
         command = "umount " + device_mount_path
         returned_value = os.system(command)
@@ -106,7 +111,7 @@ class deviceMounter():
 
         if os.path.exists(deviceMounter.LABEL_PATH):
 
-            os_devices = list(filter(lambda file : os.path.isfile(deviceMounter.LABEL_PATH + "/" + file),  os.listdir(deviceMounter.LABEL_PATH)))
+            os_devices = list(filter(lambda file : os.path.islink(deviceMounter.LABEL_PATH + "/" + file) and file not in self.system_mounted_devices, os.listdir(deviceMounter.LABEL_PATH)))
 
             for file in os_devices:
                 if file in self.removed_devices:
@@ -158,23 +163,28 @@ class deviceMounter():
         self.d2d.enableCommand(deviceMounter.UNMOUNT_COMMAND_PREFIX + reconnected_device, False)
 
 
-    def updateMountedDeviceInfo(self, device):
+    def updateRegisteredDeviceInfo(self, device):
         device_info = {}
-        device_info[deviceMounter.deviceInfo.IS_MOUNTED] = False
-        device_info[deviceMounter.deviceInfo.USED] = 0
-        device_info[deviceMounter.deviceInfo.USED_PER] = 0
-        device_info[deviceMounter.deviceInfo.SIZE] = 0
-        device_info[deviceMounter.deviceInfo.AVAILABLE] = 0
+
+        if device in self.is_mounted and self.is_mounted[device]:
+
+            total, used, free = shutil.disk_usage(deviceMounter.MOUNT_PATH + "/" + device)
+
+            device_info[deviceMounter.deviceInfo.IS_MOUNTED] = True
+            device_info[deviceMounter.deviceInfo.USED] = str(round(used / (1024*1024*1024))) + " GB"
+            device_info[deviceMounter.deviceInfo.USED_PER] = str(round((used / total) * 100, 2)) + " %"
+            device_info[deviceMounter.deviceInfo.SIZE] = str(round(total / (1024*1024*1024))) + " GB"
+            device_info[deviceMounter.deviceInfo.AVAILABLE] = str(round(free / (1024*1024*1024))) + " GB"
+
+        else:
+            device_info[deviceMounter.deviceInfo.IS_MOUNTED] = False
+
         self.updateDeviceInfo(device, device_info)
 
 
-    def updateUnmountedDeviceInfo(self, device):
+    def updateRemovedDeviceInfo(self, device):
         device_info = {}
         device_info[deviceMounter.deviceInfo.IS_MOUNTED] = False
-        device_info[deviceMounter.deviceInfo.USED] = 0
-        device_info[deviceMounter.deviceInfo.USED_PER] = 0
-        device_info[deviceMounter.deviceInfo.SIZE] = 0
-        device_info[deviceMounter.deviceInfo.AVAILABLE] = 0
         self.updateDeviceInfo(device, device_info)
 
 
@@ -190,8 +200,26 @@ class deviceMounter():
             self.d2d.publishInfo(deviceMounter.DEVICE_INFO_PREFIX + device, json_str, d2dcn.d2dConstants.category.GENERIC)
 
 
+    def updateSystemMounted(self):
+
+        # Get system mounted devices
+        self.system_mounted_devices = []
+        with open(deviceMounter.SYSTEM_FSTAB_PATH, "r") as file:
+            proc_file_content = file.read()
+        with open(deviceMounter.SYSTEM_MOUNTED_PATH, "r") as file:
+            proc_file_content += file.read()
+        for dev in os.listdir(deviceMounter.LABEL_PATH):
+            real_dev = os.path.realpath(deviceMounter.LABEL_PATH + "/" + dev)
+
+            if real_dev in proc_file_content or dev in proc_file_content:
+                self.system_mounted_devices.append(dev)
+
+
     def run(self):
-        while time.sleep(1) == None:
+
+        self.updateSystemMounted()
+
+        while True:
 
             new_devices, removed_devices, reconnected_devices = self.detectDeviceUpdates()
 
@@ -205,31 +233,33 @@ class deviceMounter():
                 self.enableRemovedDeviceCommand(reconnected_device)
 
             for device in self.devices:
-                self.updateMountedDeviceInfo(device)
+                self.updateRegisteredDeviceInfo(device)
 
             for device in self.removed_devices:
-                self.updateUnmountedDeviceInfo(device)
+                self.updateRemovedDeviceInfo(device)
 
             self.d2d.removeUnregistered()
+
+            time.sleep(1)
 
 
 def main():
 
     parser = argparse.ArgumentParser(description="Device mounter daemon")
-    parser.add_argument(
-        '--bool-option',
-        required=False,
-        default="",
-        action="store_true",
-        help='')
+    #parser.add_argument(
+    #    '--bool-option',
+    #    required=False,
+    #    default="",
+    #    action="store_true",
+    #    help='')
 
-    parser.add_argument(
-        '--device_pattern',
-        metavar = "[DEVICE_PATTERN]",
-        required=False,
-        default="",
-        help='Regular expresion for name')
- 
+    #parser.add_argument(
+    #    '--device_pattern',
+    #    metavar = "[DEVICE_PATTERN]",
+    #    required=False,
+    #    default="",
+    #    help='Regular expresion for name')
+
     args = parser.parse_args(sys.argv[1:])
     dm = deviceMounter(args)
     dm.run()
