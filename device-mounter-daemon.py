@@ -25,11 +25,13 @@ import shutil
 import json
 
 
+class container():
+    pass
+
 class deviceMounter():
 
-    MOUNT_COMMAND_PREFIX = "mount/"
-    UNMOUNT_COMMAND_PREFIX = "ummount/"
-    DEVICE_INFO_PREFIX = "info/"
+    MOUNT_COMMAND = "mount"
+    UNMOUNT_COMMAND = "ummount"
 
     LABEL_PATH = "/dev/disk/by-label/"
     MOUNT_PATH = "/run/mount/"
@@ -54,13 +56,21 @@ class deviceMounter():
     def __init__(self, options):
         
         self.options = options
-        self.d2d = d2dcn.d2d()
+        self.d2d = d2dcn.d2d(service="DeviceMounter")
 
         self.devices = []
         self.removed_devices = []
         self.info_sent = {}
         self.is_mounted = {}
         self.system_mounted_devices = []
+        self.device_info = {}
+
+    def generateMountCommandName(device):
+        return device + "." + deviceMounter.MOUNT_COMMAND
+
+
+    def generateUnmountCommandName(device):
+        return device + "." + deviceMounter.UNMOUNT_COMMAND
 
 
     def mountDevice(self, device):
@@ -81,8 +91,8 @@ class deviceMounter():
 
         else:
             self.is_mounted[device] = True
-            self.d2d.enableCommand(deviceMounter.MOUNT_COMMAND_PREFIX + device, not self.is_mounted[device])
-            self.d2d.enableCommand(deviceMounter.UNMOUNT_COMMAND_PREFIX + device, self.is_mounted[device])
+            self.d2d.enableCommand(deviceMounter.generateMountCommandName(device), not self.is_mounted[device])
+            self.d2d.enableCommand(deviceMounter.generateUnmountCommandName(device), self.is_mounted[device])
             return {}
 
 
@@ -98,8 +108,8 @@ class deviceMounter():
 
         else:
             self.is_mounted[device] = False
-            self.d2d.enableCommand(deviceMounter.UNMOUNT_COMMAND_PREFIX + device, self.is_mounted[device])
-            self.d2d.enableCommand(deviceMounter.MOUNT_COMMAND_PREFIX + device, not self.is_mounted[device])
+            self.d2d.enableCommand(deviceMounter.generateUnmountCommandName(device), self.is_mounted[device])
+            self.d2d.enableCommand(deviceMounter.generateMountCommandName(device), not self.is_mounted[device])
             return {}
 
 
@@ -139,65 +149,53 @@ class deviceMounter():
 
     def addDeviceCommand(self, new_device):
 
-        response = {}
-        response[deviceMounter.ERROR_FIELD] = {}
-        response[deviceMounter.ERROR_FIELD][d2dcn.d2dConstants.infoField.TYPE] = d2dcn.d2dConstants.valueTypes.STRING
-        response[deviceMounter.ERROR_FIELD][d2dcn.d2dConstants.infoField.OPTIONAL] = True
+        response = d2dcn.commandArgsDef()
+        response.add(deviceMounter.ERROR_FIELD, d2dcn.constants.valueTypes.STRING, True)
+
 
         self.d2d.addServiceCommand(lambda args : self.mountDevice(new_device),
-                                    deviceMounter.MOUNT_COMMAND_PREFIX + new_device,
-                                    {}, response, d2dcn.d2dConstants.category.GENERIC, True)
+                                    deviceMounter.generateMountCommandName(new_device),
+                                    d2dcn.commandArgsDef(), response, new_device, True)
 
         self.d2d.addServiceCommand(lambda args : self.umountDevice(new_device),
-                                    deviceMounter.UNMOUNT_COMMAND_PREFIX + new_device,
-                                    {}, response, d2dcn.d2dConstants.category.GENERIC, False)
+                                    deviceMounter.generateUnmountCommandName(new_device),
+                                    d2dcn.commandArgsDef(), response, new_device, False)
 
+        self.device_info[new_device] = container()
+        self.device_info[new_device].is_mounted = self.d2d.addInfoWriter(new_device + "." + deviceMounter.deviceInfo.IS_MOUNTED, d2dcn.constants.valueTypes.BOOL, new_device)
+        self.device_info[new_device].used = self.d2d.addInfoWriter(new_device + "." + deviceMounter.deviceInfo.USED, d2dcn.constants.valueTypes.FLOAT, new_device)
+        self.device_info[new_device].used_per = self.d2d.addInfoWriter(new_device + "." + deviceMounter.deviceInfo.USED_PER, d2dcn.constants.valueTypes.FLOAT, new_device)
+        self.device_info[new_device].size = self.d2d.addInfoWriter(new_device + "." + deviceMounter.deviceInfo.SIZE, d2dcn.constants.valueTypes.FLOAT, new_device)
+        self.device_info[new_device].available = self.d2d.addInfoWriter(new_device + "." + deviceMounter.deviceInfo.AVAILABLE, d2dcn.constants.valueTypes.FLOAT, new_device)
 
     def disableRemovedDeviceCommand(self, removed_device):
-        self.d2d.enableCommand(deviceMounter.MOUNT_COMMAND_PREFIX + removed_device, False)
-        self.d2d.enableCommand(deviceMounter.UNMOUNT_COMMAND_PREFIX + removed_device, False)
+        self.d2d.enableCommand(deviceMounter.generateMountCommandName(removed_device), False)
+        self.d2d.enableCommand(deviceMounter.generateUnmountCommandName(removed_device), False)
 
 
     def enableRemovedDeviceCommand(self, reconnected_device):
-        self.d2d.enableCommand(deviceMounter.MOUNT_COMMAND_PREFIX + reconnected_device, True)
-        self.d2d.enableCommand(deviceMounter.UNMOUNT_COMMAND_PREFIX + reconnected_device, False)
+        self.d2d.enableCommand(deviceMounter.generateMountCommandName(reconnected_device), True)
+        self.d2d.enableCommand(deviceMounter.generateUnmountCommandName(reconnected_device), False)
 
 
     def updateRegisteredDeviceInfo(self, device):
-        device_info = {}
 
         if device in self.is_mounted and self.is_mounted[device]:
 
             total, used, free = shutil.disk_usage(deviceMounter.MOUNT_PATH + "/" + device)
 
-            device_info[deviceMounter.deviceInfo.IS_MOUNTED] = True
-            device_info[deviceMounter.deviceInfo.USED] = str(round(used / (1024*1024*1024))) + " GB"
-            device_info[deviceMounter.deviceInfo.USED_PER] = str(round((used / total) * 100, 2)) + " %"
-            device_info[deviceMounter.deviceInfo.SIZE] = str(round(total / (1024*1024*1024))) + " GB"
-            device_info[deviceMounter.deviceInfo.AVAILABLE] = str(round(free / (1024*1024*1024))) + " GB"
+            self.device_info[device].is_mounted.value = True
+            self.device_info[device].used.value = round(used / (1024*1024*1024))
+            self.device_info[device].used_per.value = round((used / total) * 100, 2)
+            self.device_info[device].size.value = round(total / (1024*1024*1024))
+            self.device_info[device].available.value = round(free / (1024*1024*1024))
 
         else:
-            device_info[deviceMounter.deviceInfo.IS_MOUNTED] = False
-
-        self.updateDeviceInfo(device, device_info)
+            self.device_info[device].is_mounted.value = False
 
 
     def updateRemovedDeviceInfo(self, device):
-        device_info = {}
-        device_info[deviceMounter.deviceInfo.IS_MOUNTED] = False
-        self.updateDeviceInfo(device, device_info)
-
-
-    def updateDeviceInfo(self, device, device_info):
-
-        json_str = json.dumps(device_info, indent=1)
-
-        if device not in self.info_sent:
-            self.info_sent[device] = ""
-
-        if self.info_sent[device] != json_str:
-            self.info_sent[device] = json_str
-            self.d2d.publishInfo(deviceMounter.DEVICE_INFO_PREFIX + device, json_str, d2dcn.d2dConstants.category.GENERIC)
+        self.device_info[device].is_mounted = False
 
 
     def updateSystemMounted(self):
@@ -208,7 +206,7 @@ class deviceMounter():
             proc_file_content = file.read()
         with open(deviceMounter.SYSTEM_MOUNTED_PATH, "r") as file:
             proc_file_content += file.read()
-        for dev in os.listdir(deviceMounter.LABEL_PATH):
+        for dev in os.listdir(deviceMounter.LABEL_PATH) if os.path.isdir(deviceMounter.LABEL_PATH) else []:
             real_dev = os.path.realpath(deviceMounter.LABEL_PATH + "/" + dev)
 
             if real_dev in proc_file_content or dev in proc_file_content:
@@ -237,8 +235,6 @@ class deviceMounter():
 
             for device in self.removed_devices:
                 self.updateRemovedDeviceInfo(device)
-
-            self.d2d.removeUnregistered()
 
             time.sleep(1)
 
